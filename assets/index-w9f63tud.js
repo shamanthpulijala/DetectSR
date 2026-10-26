@@ -71,7 +71,7 @@ window._dsPatch = async function(type, payload) {
         };
       }
     } 
-    else if (typeof payload === 'string' && (payload.includes("URL to analyze") || payload.startsWith("http://") || payload.startsWith("https://")) || typeStr.includes("url") || type === 0) {
+    else if (typeStr === "url" || typeStr.includes("url") || type === 0 || type === Ie.URL || (typeof payload === 'string' && payload.includes("URL to analyze"))) {
       endpoint = "predict-url";
       let urlStr = payload;
       if (typeof payload === 'string' && payload.includes("URL to analyze")) {
