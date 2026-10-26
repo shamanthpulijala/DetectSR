@@ -1,0 +1,11 @@
+# DetectShield — Backend Requirements
+# Install with: pip install -r requirements.txt
+
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.9.2
+numpy==1.26.4
+tensorflow==2.17.0      # or tensorflow-cpu==2.17.0 for CPU-only (lighter on Render)
+scikit-learn==1.5.2
+python-multipart==0.0.12
+xgboost==2.1.3

@@ -1,0 +1,23 @@
+# Python & Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+
+# Training Datasets (too large for git / not needed in production)
+*.csv
+scratch*.py
+scratch.txt
+dump_analyze.py
+test_script.py
+test_confidence.py
+test_app_module.py
+
+# Build & System files
+.dist/
+.DS_Store
+Thumbs.db
