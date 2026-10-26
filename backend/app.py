@@ -75,6 +75,54 @@ with open(MODELS_DIR / "app_label_encoder.pkl", "rb") as f:
 with open(MODELS_DIR / "app_feature_cols.json") as f:
     app_feature_cols = json.load(f)
 
+# ─── Load Spam & Malicious Domain Intelligence ────────────────────────────────
+DATA_DIR = BASE_DIR / "data"
+SPAM_DOMAINS_FILE = DATA_DIR / "spam_domains.json"
+SPAM_DOMAINS: set = set()
+if SPAM_DOMAINS_FILE.exists():
+    try:
+        with open(SPAM_DOMAINS_FILE, "r", encoding="utf-8") as f:
+            SPAM_DOMAINS = set(json.load(f))
+        print(f"[DetectShield] Loaded {len(SPAM_DOMAINS)} spam & disposable domains.")
+    except Exception as e:
+        print(f"[DetectShield] Warning: Could not load spam domains: {e}")
+
+def check_spam_domain(domain: str) -> tuple:
+    """Check if domain or parent domain matches known spam/disposable domains."""
+    domain = domain.lower().strip(".")
+    if domain in SPAM_DOMAINS:
+        return True, domain
+    parts = domain.split(".")
+    for i in range(1, len(parts) - 1):
+        parent = ".".join(parts[i:])
+        if parent in SPAM_DOMAINS:
+            return True, parent
+    return False, None
+
+def extract_domains_and_urls_from_text(text: str) -> tuple:
+    """Extract explicit URLs and domain names from message text."""
+    urls = re.findall(r"https?://[^\s/$.?#].[^\s]*", text, re.IGNORECASE)
+    email_domains = re.findall(r"[a-zA-Z0-9._%+-]+@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", text)
+    bare_domains = re.findall(r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,6}\b", text)
+    
+    all_domains = set()
+    for u in urls:
+        try:
+            d = urlparse(u).netloc or u.split("/")[0]
+            d = d.split(":")[0].strip().lower()
+            if d:
+                all_domains.add(d)
+        except Exception:
+            pass
+    for d in email_domains:
+        all_domains.add(d.strip().lower())
+    for d in bare_domains:
+        d = d.strip().lower()
+        if not d.endswith(".com."):
+            all_domains.add(d.strip("."))
+            
+    return list(urls), list(all_domains)
+
 # ─── FastAPI setup ───────────────────────────────────────────────────────────
 app = FastAPI(title="DetectShield Unified API", version="6.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -144,7 +192,43 @@ def build_alt_links(url: str) -> list:
 # ─── ROUTES ───
 @app.post("/predict", tags=["Spam"])
 def predict_spam(payload: SpamRequest):
-    cleaned = clean_spam_text(payload.message)
+    msg = payload.message.strip()
+    urls, domains = extract_domains_and_urls_from_text(msg)
+    
+    # 1. Dataset Check: Known spam/disposable domains
+    for d in domains:
+        is_bad, matched_d = check_spam_domain(d)
+        if is_bad:
+            return {
+                "label": "spam",
+                "is_spam": True,
+                "spam_probability": 0.985,
+                "confidence": 99,
+                "explanation": f"Spam detected: Message contains disposable email/spam domain '{matched_d}'.",
+            }
+
+    # 2. Deep Learning Check: Scan embedded full URLs with URL Bi-LSTM model
+    for u in urls:
+        try:
+            seq = pad_sequences(url_tokenizer.texts_to_sequences([u]), maxlen=URL_MAX_LEN, padding="post")
+            lex = url_scaler.transform(get_url_feature_array(u))
+            probs = url_model.predict({"url_chars": seq, "lexical_feats": lex}, verbose=0)[0]
+            pred_idx = int(np.argmax(probs))
+            url_label = url_le.classes_[pred_idx]
+            if url_label in ("phishing", "malware", "defacement"):
+                raw_prob = float(probs[pred_idx])
+                return {
+                    "label": "spam",
+                    "is_spam": True,
+                    "spam_probability": max(0.92, raw_prob),
+                    "confidence": amplify_confidence(raw_prob, True),
+                    "explanation": f"Spam detected: Embedded link '{u}' is classified as malicious ({url_label}).",
+                }
+        except Exception:
+            pass
+
+    # 3. Bi-LSTM Text Evaluation (Trained on SMS Spam Collection)
+    cleaned = clean_spam_text(msg)
     seq = spam_tokenizer.texts_to_sequences([cleaned])
     padded = pad_sequences(seq, maxlen=SPAM_MAX_LEN, padding="post", truncating="post")
     prob = float(spam_model.predict(padded, verbose=0)[0][0])
@@ -155,7 +239,7 @@ def predict_spam(payload: SpamRequest):
         "is_spam": is_spam,
         "spam_probability": prob,
         "confidence": conf,
-        "explanation": "Spam SMS detected." if is_spam else "Message appears safe.",
+        "explanation": "Spam SMS detected (Bi-LSTM neural pattern match)." if is_spam else "Message appears safe.",
     }
 
 
@@ -185,6 +269,18 @@ def predict_url(payload: URLRequest):
             "rawLabel": "benign",
         }
 
+    # 1.5 Known Spam / Disposable Domain Intelligence Check
+    is_spam_d, matched_d = check_spam_domain(domain_lower)
+    if is_spam_d:
+        return {
+            "verdict": "DANGEROUS",
+            "confidenceScore": 99,
+            "explanation": f"Known disposable email / spam domain detected ({matched_d}).",
+            "riskFactors": [{"type": "SUSPICIOUS_DOMAIN", "description": f"Domain '{matched_d}' is flagged in spam and disposable domain intelligence datasets."}],
+            "alternativeLinks": build_alt_links(url),
+            "rawLabel": "phishing",
+        }
+
     # 2. ML Prediction Path
     seq = pad_sequences(url_tokenizer.texts_to_sequences([url]), maxlen=URL_MAX_LEN, padding='post')
     lex = url_scaler.transform(get_url_feature_array(url))
@@ -202,7 +298,7 @@ def predict_url(payload: URLRequest):
         is_ip_address = bool(re.search(r"\d+\.\d+\.\d+\.\d+", domain))
         
         # If it doesn't look like a standard attack pattern, override the overly sensitive ML model
-        if not has_suspicious and not is_ip_address and raw_prob < 0.98:
+        if not is_spam_d and not has_suspicious and not is_ip_address and raw_prob < 0.98:
             is_dangerous = False
             label = "benign"
             raw_prob = 0.90
