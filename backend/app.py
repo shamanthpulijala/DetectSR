@@ -9,6 +9,7 @@ Fixes:
 
 import os, json, pickle, re, sys
 from pathlib import Path
+from functools import lru_cache
 from urllib.parse import urlparse
 import numpy as np
 import uvicorn
@@ -174,20 +175,66 @@ BRAND_MAPPING = {
     "whatsapp": {"title": "Official WhatsApp", "url": "https://www.whatsapp.com"}
 }
 
-def build_alt_links(url: str) -> list:
-    url_lower = url.lower()
-    # Check if the URL contains any known brand keyword
-    for brand, info in BRAND_MAPPING.items():
-        if brand in url_lower:
-            return [info]
-            
-    # Default fallback: Suggest a Google Search to verify the site
+# ─── ALTERNATIVE LINKS ───
+# Pure string heuristic: no AI/LLM call, no network request, safe to run on every analysis.
+
+def _parse_url(url: str) -> tuple:
+    """Split a URL into (hostname, path + query) without touching the network."""
+    u = (url or "").strip()
+    if "://" not in u:
+        u = "//" + u
     try:
-        domain = urlparse(url if "://" in url else "http://" + url).netloc or url
-    except:
-        domain = url
-        
-    return [{"title": f"Search '{domain}' on Google", "url": f"https://www.google.com/search?q={domain}"}]
+        p = urlparse(u)
+        host = (p.hostname or "").lower()
+        extra = f"{p.path or ''} {p.query or ''}".strip()
+    except Exception:
+        host, extra = "", ""
+    return host, extra
+
+
+# One compiled pattern built once at import: every brand key must sit on a letter
+# boundary, so "chasedown.xyz" no longer matches "chase" and "pineapple.xyz"
+# no longer matches "apple". Longest keys come first so alternation prefers them.
+_BRAND_RE = re.compile(
+    "|".join(
+        r"(?<![a-z])" + re.escape(brand) + r"(?![a-z])"
+        for brand in sorted(BRAND_MAPPING, key=len, reverse=True)
+    ),
+    re.IGNORECASE,
+)
+
+
+def _match_brands(text: str) -> tuple:
+    """Brands mentioned in `text`, in order of appearance, deduplicated."""
+    if not text:
+        return ()
+    found, seen = [], set()
+    for m in _BRAND_RE.finditer(text):
+        brand = m.group(0).lower()
+        if brand not in seen:
+            seen.add(brand)
+            found.append(brand)
+    return tuple(found)
+
+
+@lru_cache(maxsize=2048)
+def _alt_links_for(url: str) -> tuple:
+    """(host, brands) for a URL: hostname wins, else brands impersonated in the
+    path/query (e.g. evil.tld/paypal-secure). Cached — bulk scans repeat URLs."""
+    host, extra = _parse_url(url)
+    return host, (_match_brands(host) or _match_brands(extra))
+
+
+def build_alt_links(url: str, include_fallback: bool = True) -> list:
+    """Safe alternative links for a URL — heuristic only, never calls an AI model."""
+    host, brands = _alt_links_for(url)
+    if brands:
+        # Official site(s) of the brand(s) this URL is pretending to be.
+        return [BRAND_MAPPING[b] for b in brands]
+    if include_fallback and host and "." in host:
+        # Unknown brand: let the user find the real site from a trusted search page.
+        return [{"title": f"Search '{host}' on Google", "url": f"https://www.google.com/search?q={host}"}]
+    return []
 
 # ─── ROUTES ───
 @app.post("/predict", tags=["Spam"])
@@ -265,7 +312,7 @@ def predict_url(payload: URLRequest):
             "confidenceScore": 99,
             "explanation": "Verified safe domain (Allowlisted).",
             "riskFactors": [{"type": "SAFE", "description": "Domain is widely trusted and verified."}],
-            "alternativeLinks": build_alt_links(url),
+            "alternativeLinks": [],
             "rawLabel": "benign",
         }
 
@@ -277,7 +324,8 @@ def predict_url(payload: URLRequest):
             "confidenceScore": 99,
             "explanation": f"Known disposable email / spam domain detected ({matched_d}).",
             "riskFactors": [{"type": "SUSPICIOUS_DOMAIN", "description": f"Domain '{matched_d}' is flagged in spam and disposable domain intelligence datasets."}],
-            "alternativeLinks": build_alt_links(url),
+            # Known spam domain: never suggest Googling it, only brand look-alikes.
+            "alternativeLinks": build_alt_links(url, include_fallback=False),
             "rawLabel": "phishing",
         }
 
@@ -310,7 +358,7 @@ def predict_url(payload: URLRequest):
         "confidenceScore": confidence,
         "explanation": f"Dual-Input Deep Learning predicts {label.upper()} based on URL structure.",
         "riskFactors": [{"type": "MALWARE" if is_dangerous else "SAFE", "description": f"URL mapped to {label}"}],
-        "alternativeLinks": build_alt_links(url),
+        "alternativeLinks": build_alt_links(url) if is_dangerous else [],
         "rawLabel": label,
     }
 

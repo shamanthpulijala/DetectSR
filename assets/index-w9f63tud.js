@@ -364,7 +364,7 @@ Enter one URL per line...`,value:d,onChange:B=>h(B.target.value),disabled:n}),d&
                   S.jsx("span",{children:"Bi-LSTM Spam Classifier"}),
                   S.jsx("span",{className:"text-gray-600",children:"•"}),
                   S.jsxs("span",{
-                    className:`font-semibold ${isSpam?"text-red-300":"text-emerald-300"}`,
+                    className:`font-semibold ${isSpam?"text-neon-red":"text-neon-green"}`,
                     children:["Confidence: ",conf,"%"]
                   })
                 ]
@@ -374,22 +374,22 @@ Enter one URL per line...`,value:d,onChange:B=>h(B.target.value),disabled:n}),d&
         ]
       }),
       S.jsxs("div",{
-        className:"space-y-4 mb-6 bg-black/30 p-5 rounded-xl border border-white/5",
+        className:"space-y-4 mb-6 bg-black/60 p-6 rounded-2xl border border-white/10",
         children:[
           S.jsxs("div",{
             children:[
               S.jsxs("div",{
-                className:"flex justify-between text-xs md:text-sm font-minimal text-gray-300 mb-1.5",
+                className:"flex items-center justify-between mb-3",
                 children:[
-                  S.jsxs("span",{className:"flex items-center gap-1.5",children:[S.jsx("span",{children:"✉️"}),"Ham (Not Spam)"]}),
-                  S.jsxs("span",{className:"font-mono font-bold text-neon-green",children:[hamPct,"%"]})
+                  S.jsxs("span",{className:"flex items-center gap-2 font-minimal text-xs font-bold uppercase tracking-widest text-gray-300",children:[S.jsx("span",{children:"✉️"}),"Ham (Not Spam)"]}),
+                  S.jsxs("span",{className:"font-mono text-sm font-bold px-3 py-1 rounded-lg bg-neon-green/10 text-neon-green border border-neon-green/30",children:[hamPct,"%"]})
                 ]
               }),
               S.jsx("div",{
-                className:"w-full bg-gray-800/80 rounded-full h-3.5 overflow-hidden p-0.5 border border-white/5",
+                className:"w-full h-4 rounded-full bg-white/5 border border-white/10 overflow-hidden",
                 children:S.jsx("div",{
-                  className:"bg-gradient-to-r from-emerald-600 to-neon-green h-full rounded-full transition-all duration-1000",
-                  style:{width:`${hamPct}%`}
+                  className:"h-full rounded-full bg-gradient-to-r from-neon-green to-neon-cyan transition-all duration-1000",
+                  style:{width:`${hamPct}%`,boxShadow:"0 0 14px rgba(16,185,129,0.5)"}
                 })
               })
             ]
@@ -397,17 +397,17 @@ Enter one URL per line...`,value:d,onChange:B=>h(B.target.value),disabled:n}),d&
           S.jsxs("div",{
             children:[
               S.jsxs("div",{
-                className:"flex justify-between text-xs md:text-sm font-minimal text-gray-300 mb-1.5",
+                className:"flex items-center justify-between mb-3",
                 children:[
-                  S.jsxs("span",{className:"flex items-center gap-1.5",children:[S.jsx("span",{children:"🚨"}),"Spam"]}),
-                  S.jsxs("span",{className:"font-mono font-bold text-neon-red",children:[spamPct,"%"]})
+                  S.jsxs("span",{className:"flex items-center gap-2 font-minimal text-xs font-bold uppercase tracking-widest text-gray-300",children:[S.jsx("span",{children:"🚨"}),"Spam"]}),
+                  S.jsxs("span",{className:"font-mono text-sm font-bold px-3 py-1 rounded-lg bg-neon-red/10 text-neon-red border border-neon-red/30",children:[spamPct,"%"]})
                 ]
               }),
               S.jsx("div",{
-                className:"w-full bg-gray-800/80 rounded-full h-3.5 overflow-hidden p-0.5 border border-white/5",
+                className:"w-full h-4 rounded-full bg-white/5 border border-white/10 overflow-hidden",
                 children:S.jsx("div",{
-                  className:"bg-gradient-to-r from-neon-red to-neon-pink h-full rounded-full transition-all duration-1000",
-                  style:{width:`${spamPct}%`}
+                  className:"h-full rounded-full bg-gradient-to-r from-neon-red to-neon-pink transition-all duration-1000",
+                  style:{width:`${spamPct}%`,boxShadow:"0 0 14px rgba(239,68,68,0.5)"}
                 })
               })
             ]
